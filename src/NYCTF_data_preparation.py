@@ -38,7 +38,8 @@ def prepare_data(dfToPrepare, dfType, varTypes, b_parseDates, b_saveFile=False, 
     if dfType.lower()=='train':
         newTypes = {key: varTypes[key] for key in varTypes.keys() if key!='passenger_count'}
         #in the specific case of the training dataset,
-        #'passenger_count' will be dealt with later as it contains NaN values but can be converted to uint8 once these NaNs are removed
+        #'passenger_count' will be dealt with later as it contains NaN values but can be converted to uint8
+        #once these NaNs are removed.
     elif dfType.lower()=='test':
         newTypes = {key: varTypes[key] for key in varTypes.keys() if key!='fare_amount'}
         #no 'fare_amount' in test set: this is what we want to predict
