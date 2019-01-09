@@ -1,0 +1,10 @@
+*.csv
+
+*.ipynb
+
+*.txt
+*.log
+
+*.pyc
+*.ipynb_checkpoints
+*.pickle

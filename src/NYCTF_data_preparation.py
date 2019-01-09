@@ -82,8 +82,6 @@ def prepare_data(dfToPrepare, dfType, varTypes, b_parseDates, b_saveFile=False, 
     else:
         print('Step 5/6 skipped. Not a training set.')
     
-    # 6- 
-    
     # N- Save clean dataframe
     if b_saveFile:
         with open(os.path.join(saveDir, fileName), 'wb') as f:
