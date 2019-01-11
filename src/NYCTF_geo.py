@@ -38,7 +38,7 @@ def flying_distance_AB(latitudeA, longitudeA, latitudeB, longitudeB, angUnit, r)
     latitudeB - float -- latitude of point B (rad)
     longitudeB - float -- longitude of point B (rad)
     angUnit - str -- unit used for angles ('rad' or 'deg')
-    r - float -- radius of the sphere in the chosen unit for the flying distance. By default, r is the average radius of the Earth (r=6371 km).
+    r - float -- radius of the sphere in the chosen unit for the flying distance.
     
     Return:
     Flying distance between A and B in the same unit as r.
@@ -82,7 +82,7 @@ def add_flying_distance(df, angUnit='rad', r=6371, unit='km'):
 def L1_distance_AB(latitudeA, longitudeA, latitudeB, longitudeB, angUnit, r, plane_rot_angle):
     """
     Given the specificity of streets in Manhattan, calculates an approximated L1-distance between points A and B
-    in the plane where the map (resp. (N,E) spatial system) is rotated by plane_rot_angle radians
+    in the plane where the (N,E) spatial system (resp. the map) is rotated by plane_rot_angle radians
     trigonometric wise (resp. clockwise).
     """
     if angUnit.lower() in ('rad', 'radian'):
@@ -109,7 +109,9 @@ def L1_distance_AB(latitudeA, longitudeA, latitudeB, longitudeB, angUnit, r, pla
         ]
     a=cos(plane_rot_angle)
     b=sin(plane_rot_angle)
-    P_inv = np.matrix([[a, b], [-b, a]]) #rotation appartient à SO2(R)
+    #la matrice de passage correspondant au changement de repère est np.matrix([[a, -b], [b, a]])
+    # sa matrice inverse est:
+    P_inv = np.matrix([[a, b], [-b, a]]) #car rotation appartient à SO2(R)
     X_prime = P_inv.dot(X)
    
     return fabs(X_prime[0, 0]) + fabs(X_prime[0, 1])
@@ -134,10 +136,10 @@ def add_L1_distance(df, angUnit='rad', r=6371, unit='km', plane_rot_angle=0):
     Parameters:
     df - dataframe -- training or test dataframe in which to add the column
     angUnit - str (optional, default 'rad') -- chosen unit for angles ('rad'/'deg')
-    r - float -- radius of the sphere in the chosen unit
+    r - float (optional) -- radius of the sphere in the chosen unit. By default, r is the average radius of the Earth (r=6371 km).
     unit - str (optional, default 'km') -- chosen unit for distances, used to name the new column
-    plane_rot_angle - float -- Rotation (rad). Used to get the spatial system lined up on the direction of the street of Manhattan (rad).
-        Trigonometric wise if rotating the map. Clockwise if rotating the spatial system.
+    plane_rot_angle - float -- Rotation (rad). Used to get the spatial system lined up on the direction of the street of Manhattan.
+        Trigonometric wise if rotating the spatial system. Clockwise if rotating the spatial map.
     
     Return:
     df_out - dataframe -- input dataframe with flying_distance column added
