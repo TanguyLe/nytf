@@ -1,78 +1,146 @@
 import pandas as pd
-from collections import Counter
-import datetime
 import holidays
 from sklearn.base import BaseEstimator, TransformerMixin
 
+HOLIDAY_EXTRACTED_FEATURES = ["holiday_score",
+                              "next_holiday_dist", "next_holiday_score",
+                              "prev_holiday_dist", "prev_holiday_score"]
 
-class HolidayExtractor(BaseEstimator, TransformerMixin):
-    def __init__(self, date_col, country='US', state=None):
-        self._date_col = date_col
-        self._country = country
-        self._state = state
 
-        self._holidays = holidays.CountryHoliday(self._country, state=self._state)
-        self._relative_holiday_importance = None
+def get_timestamp(col):
+    return col.copy(False).astype("int64") // 10 ** 9
 
-    def get_params(self, deep=True):
-        return {"date_col": self._date_col, "country": self._country, "state": self._state}
+
+class HolidayFeaturesExtractor(BaseEstimator, TransformerMixin):
+    def __init__(self, date_col, interest_col, country='US', state=None):
+        self.date_col = date_col
+        self.interest_col = interest_col
+        self.country = country
+        self.state = state
+
+        self._holidays = holidays.CountryHoliday(self.country, state=self.state)
+        self._holiday_scores = None
+
+    @staticmethod
+    def _get_holiday_info(date_col, days_ref):
+        # And then merge it with the data
+
+        holiday_info = pd.DataFrame(date_col)
+        holiday_info["norm_date"] = holiday_info[date_col.name].dt.normalize()
+        days_ref["date"] = days_ref["date"].dt.normalize()
+        holiday_info = holiday_info.merge(how="left", right=days_ref,
+                                          left_on="norm_date", right_on="date")
+        holiday_info = holiday_info.drop(["norm_date", "date"], axis=1)
+        holiday_info["next_holiday_date"] = holiday_info["next_holiday_date"] + pd.Timedelta(hours=12)
+        holiday_info["prev_holiday_date"] = holiday_info["prev_holiday_date"] + pd.Timedelta(hours=12)
+
+        return holiday_info
+
+    def _get_days_ref(self, min_date, max_date):
+        days_ref = pd.DataFrame(columns=["date", "holiday",
+                                         "prev_holiday_date", "prev_holiday",
+                                         "next_holiday_date", "next_holiday"])
+        days_ref["date"] = pd.Series(pd.date_range(start=min_date, end=max_date, normalize=True))
+        days_ref["holiday"] = days_ref["date"].copy(False).apply(lambda d: self._holidays.get(d))
+        days_ref["holiday"] = days_ref["holiday"].fillna('normal')
+        days_ref["next_holiday_date"] = pd.to_datetime(days_ref["next_holiday_date"])
+        days_ref["prev_holiday_date"] = pd.to_datetime(days_ref["prev_holiday_date"])
+
+        # And then for each day, the closest holiday in the past & future
+        past_holiday = None
+        past_holiday_date = None
+        no_holiday_last_index = 0
+        for idx, row in days_ref.iterrows():
+            if row["holiday"] == "normal":
+                if past_holiday is None:
+                    continue
+                days_ref.loc[idx, ["prev_holiday_date", "prev_holiday"]] = past_holiday_date, past_holiday
+            else:
+                # First holiday of the set
+                if past_holiday is None:
+                    past_holiday = row["holiday"]
+                    past_holiday_date = row["date"]
+
+                # We set the previous holiday of the holiday
+                hol_info = (past_holiday_date, past_holiday)
+                days_ref.loc[idx, ["prev_holiday_date", "prev_holiday"]] = hol_info
+
+                # Prepare the holiday to be the past holiday of the next days
+                past_holiday = row["holiday"]
+                past_holiday_date = row["date"]
+
+                # Then set it as the next holiday of previous days
+                hol_info = (past_holiday_date, past_holiday)
+                days_ref.loc[no_holiday_last_index:idx, ["next_holiday_date", "next_holiday"]] = hol_info
+                no_holiday_last_index = idx
+
+        # Last holiday of the set
+        hol_info = (past_holiday_date, past_holiday)
+        days_ref.loc[no_holiday_last_index:, ["next_holiday_date", "next_holiday"]] = hol_info
+
+        return days_ref
 
     def _fit(self, X, y=None):
-        max_date = X[self._date_col].max()
-        min_date = X[self._date_col].min()
+        # Compute all the the holidays in the data
+        max_date = X[self.date_col].max()
+        min_date = X[self.date_col].min()
 
-        delta = pd.Timedelta(max_date - min_date)
-        nb_of_days = delta.days
+        self._days_ref_df = self._get_days_ref(min_date=min_date, max_date=max_date)
 
-        # Let's compute all the possible holidays over the period between the first and last date of X
-        holidays = [self._holidays.get(min_date + datetime.timedelta(days=x)) for x in range(0, nb_of_days)]
-        holidays = [h for h in holidays if h is not None]
+        # And then merge it with the data
+        holiday_info = self._get_holiday_info(days_ref=self._days_ref_df, date_col=X[self.date_col].copy(False))
 
-        # Count how many there is of each
-        nb_of_each_holiday = dict(Counter(holidays))
-        # And in total
-        nb_total_holidays = sum([v for _, v in nb_of_each_holiday.items()])
+        # We can use it to compute the holiday score
+        df_to_group = pd.DataFrame(columns=["holiday", "holiday_score"])
+        df_to_group.loc[:, "holiday"] = holiday_info["holiday"].copy(False)
+        df_to_group.loc[:, "holiday_score"] = X[self.interest_col].copy(False)
 
-        # Compute all the the holidays in data
-        holiday_serie = X[self._date_col].copy(False).apply(lambda d: self._holidays.get(d))
-        # Of course most of the days are "normal" days
-        holiday_serie.loc[pd.isna(holiday_serie)] = "normal"
+        self._holiday_scores = df_to_group.groupby("holiday").mean()
+        self._holiday_scores = self._holiday_scores / self._holiday_scores.loc["normal"]
 
-        trips_count_by_holiday = holiday_serie.value_counts()
-
-        # Then we divide each count of trips (by holiday) by the number of holidays
-        # over the period (by holiday)
-        for holiday, nb in nb_of_each_holiday.items():
-            try:
-                trips_count_by_holiday[holiday] = trips_count_by_holiday[holiday] / nb
-            except KeyError:
-                pass
-
-        # For the 'normal' days, the average number of trips
-        trips_count_by_holiday["normal"] = trips_count_by_holiday["normal"] / (nb_of_days - nb_total_holidays)
-
-        # Then we finally compute the relative importance by dividing everything by the 'normal' average
-        self._relative_holiday_importance = trips_count_by_holiday / trips_count_by_holiday["normal"]
-
-        return holiday_serie
+        # But it also may be of some use for the transform
+        return holiday_info
 
     def fit(self, X, y=None):
         self._fit(X=X, y=y)
 
         return self
 
-    def _transform(self, X, holiday_serie):
-        X["holidays_score"] = holiday_serie.replace(self._relative_holiday_importance)
-        X["holidays_score"] = X["holidays_score"].fillna(1)
+    def _transform(self, X, holiday_info):
+        holiday_features = holiday_info.merge(how="left",
+                                              left_on=["holiday"],
+                                              right_index=True,
+                                              right=self._holiday_scores)
+        holidays_temp = self._holiday_scores.copy()
+        holidays_temp.columns = ["prev_" + str(e) for e in holidays_temp.columns]
+        holiday_features = holiday_features.merge(how="left",
+                                                  left_on=["prev_holiday"],
+                                                  right_index=True,
+                                                  right=holidays_temp)
+        holidays_temp = self._holiday_scores.copy()
+        holidays_temp.columns = ["next_" + str(e) for e in holidays_temp.columns]
+        holiday_features = holiday_features.merge(how="left",
+                                                  left_on=["next_holiday"],
+                                                  right_index=True,
+                                                  right=holidays_temp)
 
-        return X
+        date_col_data = X[self.date_col].copy(False)
+        prev_hol_data = holiday_features["prev_holiday_date"].copy(False)
+        next_hol_data = holiday_features["next_holiday_date"].copy(False)
+        holiday_features["prev_holiday_dist"] = date_col_data - prev_hol_data
+        holiday_features["next_holiday_dist"] = next_hol_data - date_col_data
+
+        holiday_features["prev_holiday_dist"] = get_timestamp(holiday_features["prev_holiday_dist"])
+        holiday_features["next_holiday_dist"] = get_timestamp(holiday_features["next_holiday_dist"])
+
+        return X.assign(**holiday_features[HOLIDAY_EXTRACTED_FEATURES].copy(False))
 
     def transform(self, X):
-        holiday_serie = X[self._date_col].copy(False).apply(lambda d: self._holidays.get(d))
-        return self._transform(X=X, holiday_serie=holiday_serie)
+        holiday_info = self._get_holiday_info(days_ref=self._days_ref_df, date_col=X[self.date_col].copy(False))
+        return self._transform(X=X, holiday_info=holiday_info)
 
-    def fit_transform(self, X, y=None):
+    def fit_transform(self, X, y=None, **_):
         # Implemented just not to compute twice holiday_serie, in general it's unnecessary
-        holiday_serie = self._fit(X=X, y=y)
+        holiday_info = self._fit(X=X, y=y)
 
-        return self._transform(X=X, holiday_serie=holiday_serie)
+        return self._transform(X=X, holiday_info=holiday_info)
