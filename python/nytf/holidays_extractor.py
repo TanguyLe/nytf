@@ -133,7 +133,7 @@ class HolidayFeaturesExtractor(BaseEstimator, TransformerMixin):
         holiday_features["prev_holiday_dist"] = get_timestamp(holiday_features["prev_holiday_dist"])
         holiday_features["next_holiday_dist"] = get_timestamp(holiday_features["next_holiday_dist"])
 
-        return X.assign(**holiday_features[HOLIDAY_EXTRACTED_FEATURES].copy(False))
+        return holiday_features[HOLIDAY_EXTRACTED_FEATURES].copy(False)
 
     def transform(self, X):
         holiday_info = self._get_holiday_info(days_ref=self._days_ref_df, date_col=X[self.date_col].copy(False))
