@@ -105,9 +105,8 @@ class BasicTemporalFeatures(BaseEstimator, TransformerMixin):
     _attribute_types = {'minute': 'int8', 'hour': 'int8', 'day': 'int8', 'month': 'int8', 'year': 'int16',
                        'dayofweek': 'int8', 'dayofyear': 'int16', 'days_in_month': 'int8', 'is_leap_year': 'bool'}
 
-    def transform(self, datetime_series):
-        if not isinstance(datetime_series, Series):
-            datetime_series = Series(datetime_series)
+    def transform(self, X):
+        datetime_series = X["pickup_datetime"]
         temporal_features = DataFrame(index=datetime_series.index)
 
         if self._compute_timestamp:
