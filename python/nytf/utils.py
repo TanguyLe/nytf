@@ -1,7 +1,7 @@
 import os
 import pickle
 
-from pandas import Series, DataFrame, read_csv, to_datetime
+from pandas import DataFrame, read_csv, to_datetime
 from pytz import timezone
 from sklearn.base import BaseEstimator, TransformerMixin
 
@@ -10,7 +10,8 @@ RAW_DIRECTORY = os.path.join(PROJECT_DIR, 'data', 'raw')
 PROCESSING_DIRECTORY = os.path.join(PROJECT_DIR, 'data', 'processing')
 
 
-def load_dataframe(name, extension=None, drop_key=None, save_pkl=None):
+def load_dataframe(name, extension=None, save_pkl=None, inf_passenger=0, sup_passenger=7, inf_fare=0, sup_fare=100,
+                   inf_lat=40.56, sup_lat=41.71, inf_long=-74.27, sup_long=-72.98):
     """Load train or test data frame.
 
         The data frame is load from RAW_DIRECTORY for csv file and else from PROCESSING_DIRECTORY.
@@ -21,10 +22,12 @@ def load_dataframe(name, extension=None, drop_key=None, save_pkl=None):
             The name of the data frame file, without extension. Usually 'train' or 'test'.
         extension : 'csv', 'pkl' or None
             The extension of the file to use. If None, 'pkl' is used if a pickle file exists else 'csv'.
-        drop_key : True, False or None
-            If True, the 'key' column is not read in csv file, if None it is read only for the test data frame.
         save_pkl : True, False or None
             If True, read csv file are saved ase pickle, if None it is only saved if extension is None.
+        inf_passenger, inf_fare, inf_lat, inf_long : real
+            The values less or equal are drop for the training data frame.
+        sup_passenger, sup_fare, sup_lat, sup_long : real
+            The values greater or equal are drop for the training data frame.
 
         Returns
         -------
@@ -38,8 +41,6 @@ def load_dataframe(name, extension=None, drop_key=None, save_pkl=None):
         save_pkl = extension is None
     if extension is None:
         extension = 'pkl' if os.path.exists(pickle_path) else 'csv'
-    if drop_key is None:
-        drop_key = 'train' in name
 
     if extension is 'pkl':
         with open(pickle_path, 'rb') as file:
@@ -47,17 +48,26 @@ def load_dataframe(name, extension=None, drop_key=None, save_pkl=None):
 
     elif extension is 'csv':
         dataframe = read_csv(csv_path,
-                             usecols=(lambda colname: colname != 'key') if drop_key else None,
+                             usecols=(lambda colname: colname != 'key') if 'train' in name else None,
                              dtype={'fare_amount': 'float32', 'pickup_longitude': 'float32',
                                     'pickup_latitude': 'float32', 'dropoff_longitude': 'float32',
                                     'dropoff_latitude': 'float32', 'passenger_count': 'int8'})
         dataframe.pickup_datetime = to_datetime(dataframe.pickup_datetime, format='%Y-%m-%d %H:%M:%S UTC', utc=True)
+
+        if 'train' in name:
+            dataframe = dataframe[
+                (inf_passenger < dataframe.passenger_count) & (dataframe.passenger_count < sup_passenger) &
+                (inf_fare < dataframe.fare_amount) & (dataframe.fare_amount < sup_fare) &
+                (inf_lat < dataframe.pickup_latitude) & (dataframe.pickup_latitude < sup_lat) &
+                (inf_lat < dataframe.dropoff_latitude) & (dataframe.dropoff_latitude < sup_lat) &
+                (inf_long < dataframe.pickup_longitude) & (dataframe.pickup_longitude < sup_long) &
+                (inf_long < dataframe.dropoff_longitude) & (dataframe.dropoff_longitude < sup_long)].copy(deep=False)
+
         if save_pkl:
             with open(pickle_path, 'wb') as file:
                 pickle.dump(dataframe, file)
-        return dataframe
 
-    raise ValueError('Not supported extension.')
+        return dataframe
 
 
 class BasicTemporalFeatures(BaseEstimator, TransformerMixin):
@@ -67,19 +77,6 @@ class BasicTemporalFeatures(BaseEstimator, TransformerMixin):
 
     def __init__(self, feature_names=None):
         self.feature_names = feature_names
-
-    @classmethod
-    def implemented_features(cls):
-        return (
-            'timestamp', 'minute', 'hour', 'day', 'month', 'year', 'dayofweek', 'dayofyear', 'days_in_month',
-            'is_leap_year', 'day_progress', 'week_progress', 'month_progress', 'year_progress')
-
-    @property
-    def feature_names(self):
-        return tuple(self._feature_names)
-
-    @feature_names.setter
-    def feature_names(self, feature_names):
         self._feature_names = list(feature_names if feature_names else self.implemented_features())
         to_compute = set(self._feature_names)
 
@@ -101,9 +98,15 @@ class BasicTemporalFeatures(BaseEstimator, TransformerMixin):
             raise ValueError('Not implemented feature(s): ' + ', '.join(
                 feature for feature in to_compute.difference(self.implemented_features())))
 
+    @staticmethod
+    def implemented_features():
+        return (
+            'timestamp', 'minute', 'hour', 'day', 'month', 'year', 'dayofweek', 'dayofyear', 'days_in_month',
+            'is_leap_year', 'day_progress', 'week_progress', 'month_progress', 'year_progress')
+
     _timezone = timezone('US/Eastern')
     _attribute_types = {'minute': 'int8', 'hour': 'int8', 'day': 'int8', 'month': 'int8', 'year': 'int16',
-                       'dayofweek': 'int8', 'dayofyear': 'int16', 'days_in_month': 'int8', 'is_leap_year': 'bool'}
+                        'dayofweek': 'int8', 'dayofyear': 'int16', 'days_in_month': 'int8', 'is_leap_year': 'bool'}
 
     def transform(self, X):
         datetime_series = X["pickup_datetime"]
