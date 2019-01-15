@@ -21,4 +21,4 @@ class BusinessFeatures(BaseEstimator, TransformerMixin):
         night_hour = (hour_col > 20) | (hour_col < 6)
         peak_hour = (hour_col > 16) & (hour_col < 20)
 
-        return pd.DataFrame(np.array([night_hour, peak_hour]).T, columns=["night_hour", "peak_hour"], index=index)
+        return pd.DataFrame(np.array([night_hour, peak_hour]).T, columns=["night_hour", "peak_hour"], dtype="int8", index=index)
