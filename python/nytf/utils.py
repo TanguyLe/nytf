@@ -1,7 +1,9 @@
 import os
 import pickle
+from math import pi
 
-from pandas import DataFrame, read_csv, to_datetime
+from numpy import cos, sin, ndarray, array
+from pandas import Series, DataFrame, read_csv, to_datetime
 from pytz import timezone
 from sklearn.base import BaseEstimator, TransformerMixin
 
@@ -137,3 +139,45 @@ class BasicTemporalFeatures(BaseEstimator, TransformerMixin):
                                                      (365 + temporal_features.is_leap_year.values.astype('float32'))
 
         return temporal_features[self._feature_names]
+
+
+class SegmentToCircle(BaseEstimator, TransformerMixin):
+
+    def __init__(self, segment_min=0, segment_max=1):
+        self.segment_min = segment_min
+        self.segment_max = segment_max
+
+    def fit(self, *args, **kwargs):
+        return self
+
+    def transform(self, data):
+        if isinstance(data, Series):
+            col_names = [data.name]
+            index = data.index
+            data = [data.values]
+        elif isinstance(data, DataFrame):
+            col_names = data.columns
+            index = data.index
+            data = [data[name] for name in col_names]
+        elif isinstance(data, ndarray) and len(data.shape) == 1:
+            col_names = []
+            data = [data]
+        elif isinstance(data, ndarray) and len(data.shape) == 2:
+            col_names = []
+            data = [data[:, i] for i in range(data.shape[1])]
+        else:
+            raise ValueError('The data must be Series, DataFrame or array of shape 1 or 2.')
+
+        circle_data = []
+        for col in data:
+            circle_data.append(cos((col - self.segment_min) / ((self.segment_max - self.segment_min) * 2 * pi)))
+            circle_data.append(sin((col - self.segment_min) / ((self.segment_max - self.segment_min) * 2 * pi)))
+
+        if len(col_names) == 0:
+            return array(circle_data).transpose()
+
+        dataframe = DataFrame(index=index)
+        for i, name in enumerate(col_names):
+            dataframe[name + '_cos'] = circle_data[2 * i]
+            dataframe[name + '_sin'] = circle_data[2 * i + 1]
+        return dataframe
