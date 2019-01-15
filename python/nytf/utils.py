@@ -2,10 +2,12 @@ import os
 import pickle
 from math import pi
 
-from numpy import cos, sin, ndarray, array
-from pandas import Series, DataFrame, read_csv, to_datetime
+from numpy import cos, sin, array
+from pandas import DataFrame, read_csv, to_datetime
 from pytz import timezone
 from sklearn.base import BaseEstimator, TransformerMixin
+
+from .utils2 import decompose_data_to_arrays_list
 
 PROJECT_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), os.path.pardir, os.path.pardir))
 RAW_DIRECTORY = os.path.join(PROJECT_DIR, 'data', 'raw')
@@ -151,22 +153,7 @@ class SegmentToCircle(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, data):
-        if isinstance(data, Series):
-            col_names = [data.name]
-            index = data.index
-            data = [data.values]
-        elif isinstance(data, DataFrame):
-            col_names = data.columns
-            index = data.index
-            data = [data[name] for name in col_names]
-        elif isinstance(data, ndarray) and len(data.shape) == 1:
-            col_names = []
-            data = [data]
-        elif isinstance(data, ndarray) and len(data.shape) == 2:
-            col_names = []
-            data = [data[:, i] for i in range(data.shape[1])]
-        else:
-            raise ValueError('The data must be Series, DataFrame or array of shape 1 or 2.')
+        data, index, col_names = decompose_data_to_arrays_list(data=data)
 
         circle_data = []
         for col in data:
