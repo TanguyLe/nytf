@@ -14,7 +14,7 @@ RAW_DIRECTORY = os.path.join(PROJECT_DIR, 'data', 'raw')
 PROCESSING_DIRECTORY = os.path.join(PROJECT_DIR, 'data', 'processing')
 
 
-def load_dataframe(name, extension=None, save_pkl=None, inf_passenger=0, sup_passenger=7, inf_fare=0, sup_fare=100,
+def load_dataframe(name, pkl=True, cloud=True, inf_passenger=0, sup_passenger=7, inf_fare=0, sup_fare=100,
                    inf_lat=40.56, sup_lat=41.71, inf_long=-74.27, sup_long=-72.98):
     """Load train or test data frame.
 
@@ -24,10 +24,10 @@ def load_dataframe(name, extension=None, save_pkl=None, inf_passenger=0, sup_pas
         ----------
         name : str
             The name of the data frame file, without extension. Usually 'train' or 'test'.
-        extension : 'csv', 'pkl' or None
-            The extension of the file to use. If None, 'pkl' is used if a pickle file exists else 'csv'.
-        save_pkl : True, False or None
-            If True, read csv file are saved ase pickle, if None it is only saved if extension is None.
+        pkl : bool
+            Whether to load a pickle file or the csv. Assuming that the csv is always saved as a pickle afterwards.
+        cloud : bool
+            Whether to load from the cloud bucket
         inf_passenger, inf_fare, inf_lat, inf_long : real
             The values less or equal are drop for the training data frame.
         sup_passenger, sup_fare, sup_lat, sup_long : real
@@ -38,44 +38,43 @@ def load_dataframe(name, extension=None, save_pkl=None, inf_passenger=0, sup_pas
         pandas.DataFrame
             The read data frame.
         """
-    pickle_path = os.path.join(PROCESSING_DIRECTORY, name + '.pkl')
-    csv_path = os.path.join(RAW_DIRECTORY, name + '.csv')
+    if cloud:
+        import datalab.storage as storage
+        from io import BytesIO
 
-    if save_pkl is None:
-        save_pkl = extension is None
-    if extension is None:
-        extension = 'pkl' if os.path.exists(pickle_path) else 'csv'
+        nytf_bucket = storage.Bucket("nytf")
+        remote_pickle = nytf_bucket.item('train.pkl').read_from()
+        return pickle.load(BytesIO(remote_pickle))
 
-    if extension is 'pkl':
-        with open(pickle_path, 'rb') as file:
+    pkl_path = os.path.join(PROCESSING_DIRECTORY, name + '.pkl')
+
+    if pkl:
+        with open(pkl_path, 'rb') as file:
             return pickle.load(file)
 
-    elif extension is 'csv':
-        dataframe = read_csv(csv_path,
-                             usecols=(lambda colname: colname != 'key') if 'train' in name else None,
-                             dtype={'fare_amount': 'float32', 'pickup_longitude': 'float32',
-                                    'pickup_latitude': 'float32', 'dropoff_longitude': 'float32',
-                                    'dropoff_latitude': 'float32', 'passenger_count': 'int8'})
-        dataframe.pickup_datetime = to_datetime(dataframe.pickup_datetime, format='%Y-%m-%d %H:%M:%S UTC', utc=True)
+    dataframe = read_csv(os.path.join(RAW_DIRECTORY, name + '.csv'),
+                         usecols=(lambda colname: colname != 'key') if 'train' in name else None,
+                         dtype={'fare_amount': 'float32', 'pickup_longitude': 'float32',
+                                'pickup_latitude': 'float32', 'dropoff_longitude': 'float32',
+                                'dropoff_latitude': 'float32', 'passenger_count': 'int8'})
+    dataframe.pickup_datetime = to_datetime(dataframe.pickup_datetime, format='%Y-%m-%d %H:%M:%S UTC', utc=True)
 
-        if 'train' in name:
-            dataframe = dataframe[
-                (inf_passenger < dataframe.passenger_count) & (dataframe.passenger_count < sup_passenger) &
-                (inf_fare < dataframe.fare_amount) & (dataframe.fare_amount < sup_fare) &
-                (inf_lat < dataframe.pickup_latitude) & (dataframe.pickup_latitude < sup_lat) &
-                (inf_lat < dataframe.dropoff_latitude) & (dataframe.dropoff_latitude < sup_lat) &
-                (inf_long < dataframe.pickup_longitude) & (dataframe.pickup_longitude < sup_long) &
-                (inf_long < dataframe.dropoff_longitude) & (dataframe.dropoff_longitude < sup_long)].copy(deep=False)
+    if 'train' in name:
+        dataframe = dataframe[
+            (inf_passenger < dataframe.passenger_count) & (dataframe.passenger_count < sup_passenger) &
+            (inf_fare < dataframe.fare_amount) & (dataframe.fare_amount < sup_fare) &
+            (inf_lat < dataframe.pickup_latitude) & (dataframe.pickup_latitude < sup_lat) &
+            (inf_lat < dataframe.dropoff_latitude) & (dataframe.dropoff_latitude < sup_lat) &
+            (inf_long < dataframe.pickup_longitude) & (dataframe.pickup_longitude < sup_long) &
+            (inf_long < dataframe.dropoff_longitude) & (dataframe.dropoff_longitude < sup_long)].copy(deep=False)
 
-        if save_pkl:
-            with open(pickle_path, 'wb') as file:
-                pickle.dump(dataframe, file)
+    with open(pkl_path, 'wb') as file:
+        pickle.dump(dataframe, file)
 
-        return dataframe
+    return dataframe
 
 
 class BasicTemporalFeatures(BaseEstimator, TransformerMixin):
-
     def fit(self, *args, **kwargs):
         return self
 
@@ -144,7 +143,6 @@ class BasicTemporalFeatures(BaseEstimator, TransformerMixin):
 
 
 class SegmentToCircle(BaseEstimator, TransformerMixin):
-
     def __init__(self, segment_min=0, segment_max=1):
         self.segment_min = segment_min
         self.segment_max = segment_max
