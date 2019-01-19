@@ -3,7 +3,7 @@ import pickle
 from math import pi
 
 from numpy import cos, sin, array
-from pandas import DataFrame, read_csv, to_datetime
+from pandas import DataFrame, read_csv, to_datetime, concat
 from pytz import timezone
 from sklearn.base import BaseEstimator, TransformerMixin
 
@@ -43,7 +43,7 @@ def load_dataframe(name, pkl=True, cloud=True, inf_passenger=0, sup_passenger=7,
         from io import BytesIO
 
         nytf_bucket = storage.Bucket("nytf")
-        remote_pickle = nytf_bucket.item('train.pkl').read_from()
+        remote_pickle = nytf_bucket.item(name + '.pkl').read_from()
         return pickle.load(BytesIO(remote_pickle))
 
     pkl_path = os.path.join(PROCESSING_DIRECTORY, name + '.pkl')
@@ -78,8 +78,9 @@ class BasicTemporalFeatures(BaseEstimator, TransformerMixin):
     def fit(self, *args, **kwargs):
         return self
 
-    def __init__(self, feature_names=None):
+    def __init__(self, feature_names=None, progress_in_circle=True):
         self.feature_names = feature_names
+        self.progress_in_circle = progress_in_circle
         self._feature_names = list(feature_names if feature_names else self.implemented_features())
         to_compute = set(self._feature_names)
 
@@ -139,7 +140,13 @@ class BasicTemporalFeatures(BaseEstimator, TransformerMixin):
                                                       temporal_features.day_progress.values.astype('float32')) / \
                                                      (365 + temporal_features.is_leap_year.values.astype('float32'))
 
-        return temporal_features[self._feature_names]
+        temporal_features = temporal_features[self._feature_names]
+        if self.progress_in_circle:
+            segment_to_circle = SegmentToCircle()
+            for name in {'day_progress', 'week_progress', 'month_progress', 'year_progress'}.intersection(temporal_features.columns):
+                temporal_features = concat((temporal_features, segment_to_circle.transform(temporal_features[name])), axis=1)
+
+        return temporal_features
 
 
 class SegmentToCircle(BaseEstimator, TransformerMixin):
