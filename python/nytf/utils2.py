@@ -1,7 +1,22 @@
+from tensorflow.python.lib.io import file_io
 import pandas as pd
 import numpy as np
 
 
+def transfer_file_from_bucket(filename, bucket="nytf"):
+    # Assumes that the file is at the root of the bucket, and to be transferred to the current directory
+    with file_io.FileIO(filename, mode='wb') as f_out:
+        with file_io.FileIO('gs://nytf/' + filename, mode='rb') as f_in:
+            f_out.write(f_in.read())
+            
+
+def transfer_file_to_bucket(filename, bucket="nytf"):
+    # Assumes that the file is at the root of the bucket, and to be transferred to the current directory
+    with file_io.FileIO(filename, mode='rb') as f_in:
+        with file_io.FileIO('gs://nytf/' + filename, mode='wb') as f_out:
+            f_out.write(f_in.read())
+        
+        
 # That file is created only so that you get less conflicts while moving your estimators out of utils Tristan <3
 def decompose_data_to_arrays_list(data):
     if isinstance(data, pd.Series):
